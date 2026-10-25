@@ -1,0 +1,5 @@
+numpy>=1.26
+pillow>=10.0
+astral>=3.2
+tzlocal>=5.0
+tzdata
