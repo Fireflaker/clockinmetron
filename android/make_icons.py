@@ -35,4 +35,5 @@ def icon(size, maskable=False):
 icon(192).save(ROOT / "icons" / "icon-192.png")
 icon(512).save(ROOT / "icons" / "icon-512.png")
 icon(512, maskable=True).save(ROOT / "icons" / "maskable-512.png")
+icon(180, maskable=True).save(ROOT / "icons" / "apple-touch-icon.png")     # iOS rounds the corners itself
 print("icons written")

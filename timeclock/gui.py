@@ -1,14 +1,16 @@
 """Main window: quadrant chart (left), Week / Live timeline tabs (middle), day summary (right)."""
 import csv
 import json
+import queue
+import threading
 import time
 import tkinter as tk
 import tkinter.font as tkfont
 from datetime import date, datetime, timedelta
 from pathlib import Path
-from tkinter import filedialog, messagebox, ttk
+from tkinter import filedialog, messagebox, simpledialog, ttk
 
-from . import themes
+from . import sync, themes
 from .chart import Chart, describe
 from .live_view import LiveView
 from .schedules_view import SchedulesView
@@ -54,6 +56,7 @@ class App(tk.Tk):
         self.selection = None          # (start_ts, end_ts) being reassigned
         self._cal_press = None
         self._last_cur = None
+        self._sync_q, self._sync_busy, self._sync_due = queue.Queue(), False, 0.0
 
         style = ttk.Style(self)
         style.theme_use("clam")
@@ -91,6 +94,9 @@ class App(tk.Tk):
         self.sun_pct.pack(anchor="w")
         tk.Button(top, text="Export CSV", command=self.export_csv, bg=PANEL, fg=FG, relief="flat", padx=10, pady=4,
                   font=("Segoe UI", 10)).pack(side="right", padx=4)
+        self.sync_btn = tk.Button(top, text="☁ Sync…", command=self.sync_menu, bg=PANEL, fg=FG, relief="flat",
+                                  padx=10, pady=4, font=("Segoe UI", 10))
+        self.sync_btn.pack(side="right", padx=4)
         self.theme_box = ttk.Combobox(top, values=list(themes.THEMES), state="readonly", width=10)
         self.theme_box.set(self.theme)
         self.theme_box.bind("<<ComboboxSelected>>", lambda e: self.set_theme(self.theme_box.get()))
@@ -161,21 +167,103 @@ class App(tk.Tk):
     def set_theme(self, name):
         self.theme = name
         self.settings["theme"] = name
+        self._save_settings()
+        self.chart.set_theme()
+        self.redraw()
+
+    def _save_settings(self):
         try:
             self.settings_path.write_text(json.dumps(self.settings, indent=2))
         except OSError:
             pass
-        self.chart.set_theme()
-        self.redraw()
 
     def clock_in(self, name):
         self.store.clock_in(name)
         self.data_changed()
 
-    def data_changed(self):
+    def data_changed(self, kick=True):
         self.chart.refresh()
         self.sched.refresh()
         self.redraw()
+        if kick:
+            self.sync_kick(3)
+
+    # ---------- sync through a private GitHub Gist (see sync.py) ----------
+    def sync_kick(self, delay=0):
+        self._sync_due = min(self._sync_due, time.time() + delay)
+
+    def _sync_poll(self):
+        cfg = self.settings.get("sync")
+        try:
+            msg = self._sync_q.get_nowait()
+        except queue.Empty:
+            msg = None
+        if msg:
+            self._sync_busy = False
+            self._sync_due = time.time() + 60
+            if msg[0] == "err":
+                self.sync_btn.configure(text=f"☁ ⚠ {msg[1]}", fg="#ff9b6b")
+            elif cfg:
+                (adopt, new_base), snap, gist_id = msg[1:]
+                cfg["gist"] = gist_id
+                if adopt is not None and sync.digest(self.store.doc()) != sync.digest(snap):
+                    self._sync_due = time.time() + 2      # changed meanwhile: merge on the next round
+                else:
+                    if adopt is not None:
+                        self.store.replace_doc(adopt)
+                        self.data_changed(kick=False)
+                    cfg["base"] = new_base
+                self._save_settings()
+                self.sync_btn.configure(text=f"☁ synced {datetime.now():%H:%M}", fg=FG)
+        if cfg and not self._sync_busy and time.time() >= self._sync_due:
+            self._sync_busy = True
+            snap, first = self.store.doc(), cfg.pop("first", "merge")
+            gist = sync.Gist(cfg["token"], cfg.get("gist"))
+
+            def run():
+                try:
+                    self._sync_q.put(("ok", sync.sync_once(gist, cfg.get("base"), snap, first), snap, gist.id))
+                except sync.GistError as e:
+                    self._sync_q.put(("err", str(e)))
+            threading.Thread(target=run, daemon=True).start()
+
+    def sync_menu(self):
+        cfg = self.settings.get("sync")
+        if cfg:
+            m = tk.Menu(self, tearoff=0)
+            m.add_command(label="Sync now", command=self.sync_kick)
+            m.add_command(label="Disconnect this PC", command=self.sync_disconnect)
+            m.tk_popup(self.sync_btn.winfo_rootx(), self.sync_btn.winfo_rooty() + self.sync_btn.winfo_height())
+            return
+        token = simpledialog.askstring(
+            "Sync with GitHub",
+            "Free sync between this PC and your phones through a private GitHub Gist.\n\n"
+            "1. github.com → Settings → Developer settings → Fine-grained tokens → Generate\n"
+            "2. Account permissions → Gists: Read and write (nothing else)\n"
+            "3. Paste the token here (it stays in data/settings.json on this PC):", parent=self, show="•")
+        if not token:
+            return
+        gist = sync.Gist(token)
+        try:
+            found = gist.find()
+        except sync.GistError as e:
+            messagebox.showerror("Sync", f"Could not connect: {e}")
+            return
+        first = "merge"
+        if found and messagebox.askyesno(
+                "Sync", "Found synced data on GitHub.\n\nYes = use it on this PC (replaces this PC's data; "
+                        "best for a new device)\nNo = merge both"):
+            first = "replace"
+        self.settings["sync"] = {"token": token.strip(), "gist": found, "base": None, "first": first}
+        self._save_settings()
+        self.sync_btn.configure(text="☁ syncing…")
+        self.sync_kick()
+
+    def sync_disconnect(self):
+        if messagebox.askyesno("Sync", "Stop syncing this PC? Data stays here and on GitHub."):
+            self.settings.pop("sync", None)
+            self._save_settings()
+            self.sync_btn.configure(text="☁ Sync…", fg=FG)
 
     # ---------- reassign a time range: select it, then pick a task on the chart ----------
     def select_range(self, s, e):
@@ -214,6 +302,7 @@ class App(tk.Tk):
     def tick(self):
         if self.store.apply_schedules():
             self.data_changed()
+        self._sync_poll()
         self.redraw()
         cur = self.store.current()
         if int(time.time()) % 10 == 0 or cur != self._last_cur:

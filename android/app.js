@@ -28,18 +28,21 @@ function load() {
     schedules: [], settings: {theme: "Nature"},
   };
 }
-const save = () => localStorage.setItem(KEY, JSON.stringify(S));
+const persist = () => localStorage.setItem(KEY, JSON.stringify(S));
+const save = () => { persist(); syncSoon(3000); };
 const tag = name => S.tags.find(t => t.name === name);
 const current = () => S.log[S.log.length - 1];
 const firstStart = () => (S.log.find(r => r[1] != null) || [nowS()])[0];
 
-function compact() {
-  S.log.sort((a, b) => a[0] - b[0]);
-  S.log = S.log.filter((r, i, L) => {
+function compactLog(log) {
+  return [...log].sort((a, b) => a[0] - b[0]).filter((r, i, L) => {
     if (i === 0) return r[1] != null;
     const p = L[i - 1];
     return !(r[1] === p[1] && r[2] === p[2] && r[3] === p[3]);
   });
+}
+function compact() {
+  S.log = compactLog(S.log);
   save();
 }
 
@@ -707,7 +710,8 @@ function download(name, text, type) {
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 }
 const stamp = () => new Date().toISOString().slice(0, 10);
-$("exportJson").onclick = () => download(`clockinmetron_${stamp()}.json`, JSON.stringify(S), "application/json");
+$("exportJson").onclick = () => download(`clockinmetron_${stamp()}.json`,
+  JSON.stringify({...S, settings: {...S.settings, sync: undefined}}), "application/json");   // never export the token
 $("exportCsv").onclick = () => {
   const now = nowS(), iso = t => new Date(t * 1000).toISOString();
   const lines = ["task,x_outdoor,y_social,start,end,duration_s"];
@@ -726,9 +730,141 @@ $("importJson").onchange = async e => {
     const d = JSON.parse(await f.text());
     if (!Array.isArray(d.tags) || !Array.isArray(d.log)) throw new Error("not a clockinmetron backup");
     if (!confirm(`Replace everything on this phone with ${d.log.length} timeline entries and ${d.tags.length} tasks?`)) return;
-    S = Object.assign({schedules: [], settings: {}}, d);
+    S = Object.assign({schedules: [], settings: {}}, d, {settings: {...d.settings, sync: S.settings.sync}});
     save(); renderAll();
   } catch (err) { alert("Import failed: " + err.message); }
+};
+
+// ---------------------------------------------------------------- sync (same logic as desktop timeclock/sync.py)
+// One private GitHub Gist holds {tags, log, schedules}. Each device remembers `base` = hash of what it last synced:
+// only this device changed → upload; only the gist changed → take it; both → merge (union, this device wins ties).
+const GFILE = "clockinmetron.json";
+function cyrb53(str) {
+  let h1 = 0xdeadbeef, h2 = 0x41c6ce57;
+  for (let i = 0; i < str.length; i++) {
+    const ch = str.charCodeAt(i);
+    h1 = Math.imul(h1 ^ ch, 2654435761); h2 = Math.imul(h2 ^ ch, 1597334677);
+  }
+  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+  return (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(16);
+}
+const byFirst = (a, b) => a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0;
+const num = v => v == null ? null : +v;
+const digest = d => cyrb53(JSON.stringify([      // schedule `last` is bookkeeping, not content
+  d.tags.map(t => [t.name, +t.x, +t.y]).sort(byFirst),
+  d.log.map(r => [+r[0], r[1], num(r[2]), num(r[3])]).sort(byFirst),
+  d.schedules.map(s => [+s.id, s.name, s.hhmm, s.days, !!s.on]).sort(byFirst),
+]));
+const syncDoc = () => JSON.parse(JSON.stringify({tags: S.tags, log: S.log, schedules: S.schedules}));
+function mergeDocs(remote, local) {
+  const tags = new Map(remote.tags.map(t => [t.name, t])), log = new Map(remote.log.map(r => [+r[0], r]));
+  const sch = new Map(remote.schedules.map(s => [+s.id, s]));
+  local.tags.forEach(t => tags.set(t.name, t));
+  local.log.forEach(r => log.set(+r[0], r));
+  local.schedules.forEach(s => sch.set(+s.id, {...s, last: Math.max(sch.get(+s.id)?.last || 0, s.last || 0) || null}));
+  return {tags: [...tags.values()], log: compactLog([...log.values()]), schedules: [...sch.values()]};
+}
+function decide(base, local, remote) {           // → [upload, adopt, newBase]
+  const hl = digest(local);
+  if (!remote) return [local, null, hl];
+  const hr = digest(remote);
+  if (hl === hr) return [null, null, hl];
+  if (hr === base) return [local, null, hl];
+  if (hl === base) return [null, remote, hr];
+  const m = mergeDocs(remote, local);
+  return [m, m, digest(m)];
+}
+async function gh(token, method, path, body) {
+  const r = await fetch("https://api.github.com" + path, {
+    method, cache: "no-store", body: body && JSON.stringify(body),
+    headers: {Authorization: "Bearer " + token, Accept: "application/vnd.github+json"},
+  }).catch(() => { throw new Error("offline"); });
+  if (!r.ok) throw new Error({401: "token rejected", 403: "token lacks Gist access", 404: "gist not found"}[r.status]
+                             || "GitHub error " + r.status);
+  return r.json();
+}
+async function findGist(token) {
+  for (let page = 1; page <= 10; page++) {
+    const gists = await gh(token, "GET", `/gists?per_page=100&page=${page}`);
+    const g = gists.find(g => g.files[GFILE]);
+    if (g) return g.id;
+    if (gists.length < 100) return null;
+  }
+  return null;
+}
+async function loadGist(token, id) {
+  const f = (await gh(token, "GET", "/gists/" + id)).files[GFILE];
+  if (!f) return null;
+  return JSON.parse(f.truncated ? await (await fetch(f.raw_url, {cache: "no-store"})).text() : f.content);
+}
+async function saveGist(token, id, d) {
+  const files = {[GFILE]: {content: JSON.stringify(d)}};
+  if (id) { await gh(token, "PATCH", "/gists/" + id, {files}); return id; }
+  return (await gh(token, "POST", "/gists", {public: false, files,
+    description: "clockinmetron data (https://github.com/Fireflaker/clockinmetron)"})).id;
+}
+function adoptDoc(d) {
+  const last = new Map(S.schedules.map(s => [+s.id, s.last || 0]));
+  S.tags = d.tags;
+  S.log = compactLog(d.log);
+  S.schedules = d.schedules.map(s => ({...s, last: Math.max(s.last || 0, last.get(+s.id) || 0) || null}));
+}
+
+let syncBusy = false, syncTimer = 0;
+function syncSoon(ms) {
+  if (!S.settings?.sync) return;
+  clearTimeout(syncTimer);
+  syncTimer = setTimeout(syncNow, ms);
+}
+async function syncNow(first = "merge") {
+  const cfg = S.settings.sync;
+  if (!cfg || syncBusy || !navigator.onLine) return;
+  syncBusy = true; renderSync("syncing…");
+  try {
+    if (!cfg.gist) cfg.gist = await findGist(cfg.token);
+    const remote = cfg.gist ? await loadGist(cfg.token, cfg.gist) : null, local = syncDoc();
+    let [up, adopt, base] = cfg.base == null && remote && first === "replace"
+      ? [null, remote, digest(remote)] : decide(cfg.base, local, remote);
+    if (up) cfg.gist = await saveGist(cfg.token, cfg.gist, up);
+    if (adopt && digest(syncDoc()) !== digest(local)) base = cfg.base;   // edited meanwhile → merge next round
+    else if (adopt) { adoptDoc(adopt); applySchedules(); renderAll(); }
+    Object.assign(cfg, {base, at: nowS(), err: null});
+  } catch (e) {
+    cfg.err = e.message;
+  } finally {
+    syncBusy = false;
+    if (S.settings.sync === cfg) persist();
+    renderSync();
+  }
+}
+function renderSync(msg) {
+  const cfg = S.settings.sync;
+  $("syncOff").hidden = !!cfg; $("syncOn").hidden = !cfg;
+  if (!cfg) return;
+  const at = cfg.at ? new Date(cfg.at * 1000).toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"}) : "never";
+  $("syncStatus").textContent = msg || (cfg.err ? `⚠ ${cfg.err} (last synced ${at})` : `☁ synced ${at}`);
+}
+$("syncConnect").onclick = async () => {
+  const token = $("syncToken").value.trim();
+  if (!token) return;
+  try {
+    renderSync(); $("syncConnect").textContent = "…";
+    const gist = await findGist(token);
+    const first = gist && confirm("Found synced data on GitHub.\n\nOK = use it on this device (replaces this " +
+      "device's data — best for a new device)\nCancel = merge both") ? "replace" : "merge";
+    S.settings.sync = {token, gist, base: null};
+    $("syncToken").value = "";
+    persist();
+    await syncNow(first);
+  } catch (e) {
+    alert("Could not connect: " + e.message);
+  } finally { $("syncConnect").textContent = "Connect"; renderSync(); }
+};
+$("syncNow").onclick = () => syncNow();
+$("syncOff2").onclick = () => {
+  if (!confirm("Stop syncing this device? Data stays here and on GitHub.")) return;
+  delete S.settings.sync; persist(); renderSync();
 };
 
 // ---------------------------------------------------------------- tabs + render loop
@@ -774,6 +910,7 @@ function renderAll() {
     $("theme").value = S.settings.theme || "Nature";
     $("lat").value = S.settings.lat ?? ""; $("lon").value = S.settings.lon ?? "";
     $("locLabel").textContent = S.settings.lat == null ? "not set" : `${S.settings.lat}, ${S.settings.lon}`;
+    renderSync();
   }
 }
 
@@ -787,14 +924,19 @@ function loop() {
     drawHeader();
     if (tab === "day") drawDay();
     if (lastSec % 30 === 0) { drawChart(); if (tab === "day") drawSummary(); }
+    if (lastSec % 60 === 0 && !document.hidden) syncNow();
   }
   requestAnimationFrame(loop);
 }
-document.addEventListener("visibilitychange", () => { if (!document.hidden) { applySchedules(); renderAll(); } });
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) { applySchedules(); renderAll(); syncNow(); }
+});
 window.addEventListener("resize", renderAll);
-window.addEventListener("pagehide", save);
+window.addEventListener("pagehide", persist);
+window.addEventListener("online", () => syncNow());
 
 applySchedules();
 renderAll();
+syncNow();
 requestAnimationFrame(loop);
 if ("serviceWorker" in navigator && location.protocol.startsWith("http")) navigator.serviceWorker.register("sw.js");

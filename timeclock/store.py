@@ -211,3 +211,29 @@ class Store:
         rows = self.db.execute("SELECT t,name,x,y FROM log ORDER BY t").fetchall()
         ends = [r[0] for r in rows[1:]] + [None]
         return [(n, x, y, t, e) for (t, n, x, y), e in zip(rows, ends) if n is not None]
+
+    # ---------- sync document (same JSON shape as the phone app) ----------
+    def doc(self):
+        return {
+            "tags": [{"name": n, "x": x, "y": y} for n, x, y in self.tags()],
+            "log": [list(r) for r in self.db.execute("SELECT t,name,x,y FROM log ORDER BY t")],
+            "schedules": [{"id": i, "name": n, "hhmm": h, "days": d, "on": bool(e), "last": l}
+                          for i, n, h, d, e, l in self.db.execute(
+                              "SELECT id,name,hhmm,days,enabled,last_run FROM schedules ORDER BY id")],
+        }
+
+    def replace_doc(self, doc):
+        """Replace tags, log and schedules with <doc> (used by sync). Keeps the later last_run per schedule."""
+        last = dict(self.db.execute("SELECT id,last_run FROM schedules"))
+        with self.db:
+            self.db.execute("DELETE FROM tags")
+            self.db.execute("DELETE FROM log")
+            self.db.execute("DELETE FROM schedules")
+            self.db.executemany("INSERT OR REPLACE INTO tags VALUES (?,?,?)",
+                                [(t["name"], t["x"], t["y"]) for t in doc["tags"]])
+            self.db.executemany("INSERT OR REPLACE INTO log VALUES (?,?,?,?)", [tuple(r) for r in doc["log"]])
+            self.db.executemany("INSERT OR REPLACE INTO schedules VALUES (?,?,?,?,?,?)",
+                                [(s["id"], s["name"], s["hhmm"], s["days"], int(bool(s["on"])),
+                                  max(s.get("last") or 0, last.get(s["id"]) or 0) or None)
+                                 for s in doc["schedules"]])
+        self._compact()

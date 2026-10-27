@@ -8,7 +8,11 @@
   <title>clockinmetron</title>
   <link rel="manifest" href="manifest.json">
   <link rel="icon" href="icons/icon-192.png">
-  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="clockin">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -79,12 +83,26 @@
     <div class="row"><button id="geo">📍 Use my location</button><span id="locLabel" class="hint"></span></div>
     <div class="row"><label>lat <input id="lat" type="number" step="0.01"></label>
       <label>lon <input id="lon" type="number" step="0.01"></label><button id="latlonSave">Save</button></div>
+    <h3>Sync (phones + PC, free via GitHub)</h3>
+    <div id="syncOff">
+      <p class="hint">Keeps your data in one private GitHub Gist. Make a token once: github.com → Settings → Developer settings →
+        <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener">Fine-grained tokens</a> →
+        Account permissions → <b>Gists: Read and write</b> (nothing else). Paste the same token on every device.</p>
+      <div class="row"><input id="syncToken" type="password" placeholder="github_pat_…" autocomplete="off" style="flex:1">
+        <button id="syncConnect" class="primary">Connect</button></div>
+    </div>
+    <div id="syncOn" hidden>
+      <div class="row"><span id="syncStatus" class="hint"></span></div>
+      <div class="row"><button id="syncNow">↻ Sync now</button><button id="syncOff2">Disconnect</button></div>
+    </div>
     <h3>Backup</h3>
-    <p class="hint">Data lives only on this phone (browser storage). Export a backup now and then.</p>
+    <p class="hint">Without sync, data lives only on this device (browser storage). Export a backup now and then.</p>
     <div class="row"><button id="exportJson">Export JSON</button><button id="exportCsv">Export CSV</button>
       <label class="file">Import JSON<input id="importJson" type="file" accept=".json,application/json"></label></div>
     <h3>Install</h3>
-    <p class="hint">Chrome menu ⋮ → <b>Install app</b> (or Add to Home screen) for a full-screen app that works offline.</p>
+    <p class="hint"><b>Android:</b> Chrome menu ⋮ → <b>Install app</b> (or Add to Home screen).<br>
+      <b>iPhone / iPad:</b> open in <b>Safari</b> → Share ⬆ → <b>Add to Home Screen</b>.<br>
+      Full-screen, works offline. The installed app has its own storage, so set up Sync inside it.</p>
     <p class="hint"><a href="https://github.com/Fireflaker/clockinmetron">github.com/Fireflaker/clockinmetron</a></p>
   </section>
 

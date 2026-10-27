@@ -8,14 +8,37 @@ That makes the calendar readable at a glance: more orange and green means more o
 
 ![screenshot](screenshot.png)
 
-## Phone (Android)
+## Phone (Android & iPhone)
 
 **https://fireflaker.github.io/clockinmetron/android/**
 
-Open the link in Chrome, then tap ⋮ → **Install app**. It runs full-screen, works offline and has the same features.
-Phone data stays on the phone and is separate from the PC. Use **More → Export JSON** to back it up.
+- **Android:** open the link in Chrome, then tap ⋮ → **Install app**.
+- **iPhone / iPad:** open the link in **Safari**, then tap Share ⬆ → **Add to Home Screen**.
+
+It runs full-screen, works offline and has the same features. Without Sync, each device keeps its own data.
+Use **More → Export JSON** to back it up.
 
 ![android](screenshot_android.png)
+
+## Sync (free, through a private GitHub Gist)
+
+Phones and the PC can share one dataset stored in a secret gist on your GitHub account.
+
+1. On github.com go to Settings → Developer settings →
+   [Fine-grained tokens](https://github.com/settings/personal-access-tokens/new) → Generate.
+   Under Account permissions, set **Gists: Read and write** and nothing else.
+2. Paste the token on each device:
+   - Phone: **More → Sync**.
+   - PC: the **☁ Sync…** button.
+3. The first device creates the gist. Each later device asks whether to **use the synced data** (recommended for a
+   new device) or **merge** both.
+
+Syncing runs at startup, about 3 s after each change, and every minute.
+If only one side changed, that version wins. If both changed offline, they are merged: all tasks and timeline rows
+are kept, and the device syncing at that moment wins ties.
+The token is stored only on each device (`data/settings.json` on the PC, app storage on the phone) and is never
+exported. Note that on iPhone the home-screen app has its own storage, separate from Safari, so set up Sync inside the
+installed app.
 
 ## Run (Windows / desktop)
 
@@ -57,6 +80,6 @@ schedules(name, hhmm, days, enabled, last_run)   -- auto clock-in
 
 Log rows have no end time, so gaps and overlaps are impossible. Colors are computed live from (x, y)
 and the theme, never stored. Editing the chart never rewrites the timeline. The phone app keeps the same structure in
-browser storage (`android/app.js`).
+browser storage (`android/app.js`). Sync stores the same three lists as one JSON file (`timeclock/sync.py`).
 
 Tests: `python -m unittest discover tests`
