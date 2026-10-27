@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#1e1f24">
+  <meta name="description" content="Clock in to one task at a time. Every day adds up to 24h.">
+  <title>clockinmetron</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" href="icons/icon-192.png">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header id="top">
+    <div class="now">
+      <span id="swatch"></span>
+      <div>
+        <div id="nowName">—</div>
+        <div id="nowTime">00:00:00</div>
+      </div>
+    </div>
+    <div class="sun">
+      <div class="sunbar"><div id="sunFill"></div></div>
+      <div id="sunText">☀ set your location in ⚙</div>
+    </div>
+  </header>
+
+  <section id="chartWrap">
+    <canvas id="chart"></canvas>
+    <div id="pickBanner" hidden><b id="pickText"></b><button id="pickCancel">Cancel</button></div>
+    <button id="zoomReset" hidden>Reset zoom</button>
+  </section>
+  <p class="hint">Tap a dot = clock in · drag = move · hold = edit · tap empty = new task · pinch = zoom</p>
+
+  <nav id="tabs">
+    <button data-tab="day" class="on">📅 Day</button>
+    <button data-tab="live">● Live</button>
+    <button data-tab="auto">⏰ Auto</button>
+    <button data-tab="more">⚙ More</button>
+  </nav>
+
+  <section id="tab-day" class="tab">
+    <div class="daynav">
+      <button id="dayPrev">◀</button><b id="dayLabel"></b><button id="dayNext">▶</button><button id="dayToday">Today</button>
+    </div>
+    <canvas id="dayCanvas"></canvas>
+    <p class="hint">Drag over a time range (or tap a block), then tap the task it should be.</p>
+    <table id="sumTable"></table>
+  </section>
+
+  <section id="tab-live" class="tab" hidden>
+    <div class="chips" id="liveZooms"></div>
+    <canvas id="liveCanvas"></canvas>
+    <p class="hint">The active task fills in as time passes. Drag over a range or tap a block to reassign.</p>
+  </section>
+
+  <section id="tab-auto" class="tab" hidden>
+    <h3>Auto clock-in</h3>
+    <p class="hint">E.g. Work at 09:00 Mon–Fri. No clock-out needed. If the app was closed at that time,
+      the entry is back-filled at the exact time when you next open it.</p>
+    <div class="form">
+      <div class="row"><label>Clock in to <select id="schTask"></select></label>
+        <button id="schPick">◎ pick on chart</button></div>
+      <div class="row"><label>at <input id="schTime" type="time" value="09:00"></label></div>
+      <div id="schDays" class="chips"></div>
+      <div class="chips" id="schPresets">
+        <button data-days="12345">Weekdays</button><button data-days="67">Weekend</button><button data-days="1234567">Every day</button>
+      </div>
+      <button id="schAdd" class="primary">＋ Add</button>
+    </div>
+    <ul id="schList"></ul>
+  </section>
+
+  <section id="tab-more" class="tab" hidden>
+    <h3>Theme</h3>
+    <select id="theme"></select>
+    <h3>Location (for sunrise / sunset)</h3>
+    <div class="row"><button id="geo">📍 Use my location</button><span id="locLabel" class="hint"></span></div>
+    <div class="row"><label>lat <input id="lat" type="number" step="0.01"></label>
+      <label>lon <input id="lon" type="number" step="0.01"></label><button id="latlonSave">Save</button></div>
+    <h3>Backup</h3>
+    <p class="hint">Data lives only on this phone (browser storage). Export a backup now and then.</p>
+    <div class="row"><button id="exportJson">Export JSON</button><button id="exportCsv">Export CSV</button>
+      <label class="file">Import JSON<input id="importJson" type="file" accept=".json,application/json"></label></div>
+    <h3>Install</h3>
+    <p class="hint">Chrome menu ⋮ → <b>Install app</b> (or Add to Home screen) for a full-screen app that works offline.</p>
+    <p class="hint"><a href="https://github.com/Fireflaker/clockinmetron">github.com/Fireflaker/clockinmetron</a></p>
+  </section>
+
+  <script src="app.js"></script>
+</body>
+</html>

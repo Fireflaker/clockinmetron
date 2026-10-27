@@ -1,7 +1,9 @@
-"""Storage: one SQLite file with two plain tables.
+"""Storage: one SQLite file with plain tables.
 
     tags(name, x, y)        the palette shown on the chart (what you *can* clock into)
     log(t, name, x, y)      the timeline: "from time t on, I was doing <name> at (x, y)"
+    schedules(id, name, hhmm, days, enabled, last_run)
+                            auto clock-ins, e.g. Work at 09:00 on days "12345" (Mon=1 ? Sun=7)
 
 A log row has no end time; it lasts until the next row's t (the last row runs until now).
 So gaps/overlaps are impossible and every day always sums to 24h. name = NULL marks an
@@ -33,6 +35,8 @@ class Store:
         self.db.executescript("""
             CREATE TABLE IF NOT EXISTS tags (name TEXT PRIMARY KEY, x REAL NOT NULL, y REAL NOT NULL);
             CREATE TABLE IF NOT EXISTS log  (t REAL PRIMARY KEY, name TEXT, x REAL, y REAL);
+            CREATE TABLE IF NOT EXISTS schedules (id INTEGER PRIMARY KEY, name TEXT NOT NULL,
+                hhmm TEXT NOT NULL, days TEXT NOT NULL, enabled INTEGER NOT NULL DEFAULT 1, last_run REAL);
         """)
         if not self.db.execute("SELECT 1 FROM tags").fetchone():
             self.db.executemany("INSERT INTO tags VALUES (?,?,?)", DEFAULT_TAGS)
@@ -63,6 +67,7 @@ class Store:
         if old != new and self.tag(new):
             raise ValueError(f"'{new}' already exists.")
         self.db.execute("UPDATE tags SET name=? WHERE name=?", (new, old))
+        self.db.execute("UPDATE schedules SET name=? WHERE name=?", (new, old))
         self.db.commit()
 
     def delete_tag(self, name):
@@ -136,6 +141,58 @@ class Store:
         _, x, y = self.tag(name)
         self.db.execute("UPDATE log SET name=?, x=?, y=? WHERE t=?", (name, x, y, key_t))
         self._compact()
+
+    def log_at(self, name, t):
+        """Clock into <name> at time t (may be in the past; lasts until the next entry)."""
+        _, x, y = self.tag(name)
+        self.db.execute("INSERT OR REPLACE INTO log VALUES (?,?,?,?)", (t, name, x, y))
+        self._compact()
+
+    # ---------- schedules (auto clock-in) ----------
+    def schedules(self):
+        return self.db.execute("SELECT id,name,hhmm,days,enabled FROM schedules ORDER BY hhmm,name").fetchall()
+
+    def add_schedule(self, name, hhmm, days, now=None):
+        try:
+            h, m = (int(v) for v in hhmm.split(":"))
+        except ValueError:
+            h = m = -1
+        if not (0 <= h < 24 and 0 <= m < 60) or not days or set(days) - set("1234567"):
+            raise ValueError("Use HH:MM (e.g. 09:00) and pick at least one day.")
+        self.db.execute("INSERT INTO schedules (name,hhmm,days,enabled,last_run) VALUES (?,?,?,1,?)",
+                        (name, f"{h:02d}:{m:02d}", "".join(sorted(set(days))), now or time.time()))
+        self.db.commit()
+
+    def set_schedule_enabled(self, sid, enabled, now=None):
+        # Re-enabling never back-fills the time it was off.
+        self.db.execute("UPDATE schedules SET enabled=?, last_run=? WHERE id=?",
+                        (int(enabled), now or time.time(), sid))
+        self.db.commit()
+
+    def delete_schedule(self, sid):
+        self.db.execute("DELETE FROM schedules WHERE id=?", (sid,))
+        self.db.commit()
+
+    def apply_schedules(self, now=None):
+        """Fire every occurrence since each schedule's last run, at its exact time.
+        Works lazily: if the app was closed at 09:00, the 09:00 clock-in is back-filled on next open.
+        Returns the names clocked into, in order."""
+        now = now or time.time()
+        due = []
+        rows = self.db.execute("SELECT id,name,hhmm,days,last_run FROM schedules WHERE enabled=1").fetchall()
+        for sid, name, hhmm, days, last in rows:
+            h, m = (int(v) for v in hhmm.split(":"))
+            d = datetime.fromtimestamp(last or now).date()
+            while d <= datetime.fromtimestamp(now).date():
+                t = datetime.combine(d, dtime(h, m)).timestamp()
+                if str(d.isoweekday()) in days and (last or now) < t <= now and self.tag(name):
+                    due.append((t, name))
+                d += timedelta(days=1)
+            self.db.execute("UPDATE schedules SET last_run=? WHERE id=?", (now, sid))
+        for t, name in sorted(due):
+            self.log_at(name, t)
+        self.db.commit()
+        return [n for _, n in sorted(due)]
 
     def _compact(self):
         """Merge consecutive identical entries and drop leading 'untracked' markers."""

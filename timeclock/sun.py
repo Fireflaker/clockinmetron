@@ -4,7 +4,7 @@ The location comes from data/settings.json "location" if set: a city name from a
 (e.g. "Boston") or {"lat": 42.36, "lon": -71.06}. Otherwise it's guessed from the system timezone
 (America/New_York -> New York). Nothing is sent over the network.
 """
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from functools import lru_cache
 
 from astral import LocationInfo, Observer
@@ -61,3 +61,19 @@ class Sun:
             except ValueError:
                 out.append(None)
         return tuple(out)
+
+    def progress(self, now: float):
+        """('day'|'night', fraction 0..1, seconds to next sunrise/sunset) or None if unknown."""
+        d = datetime.fromtimestamp(now).date()
+        events = []
+        for dd in (d - timedelta(days=1), d, d + timedelta(days=1)):
+            r, s = self.times(dd)
+            if r is not None:
+                events.append((r, "rise"))
+            if s is not None:
+                events.append((s, "set"))
+        events.sort()
+        for (t0, k0), (t1, _) in zip(events, events[1:]):
+            if t0 <= now < t1:
+                return ("day" if k0 == "rise" else "night"), (now - t0) / (t1 - t0), t1 - now
+        return None

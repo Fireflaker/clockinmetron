@@ -109,6 +109,34 @@ class StoreTest(unittest.TestCase):
             self.assertEqual(b1, a2)
         self.assertAlmostEqual(sum(b - a for *_, a, b in segs), 6 * H)
 
+    def test_schedule_backfills_weekdays_at_exact_time(self):
+        # D is a Wednesday; schedule Engineering Mon-Fri 09:00, app "closed" until Sunday night.
+        self.s.add_schedule("Engineering", "9:00", "12345", now=DS)
+        fired = self.s.apply_schedules(now=DS + 4 * 24 * H + 20 * H)
+        self.assertEqual(fired, ["Engineering"] * 3)  # Wed, Thu, Fri
+        self.assertIn(DS + 9 * H, self.log_ts())
+        self.assertNotIn(DS + 3 * 24 * H + 9 * H, self.log_ts())  # Saturday
+        self.assertEqual(self.s.apply_schedules(now=DS + 4 * 24 * H + 21 * H), [])  # only once
+
+    def test_schedule_not_retroactive_and_respects_later_entries(self):
+        self.s.add_schedule("Gym", "08:00", "1234567", now=DS + 10 * H)
+        self.assertEqual(self.s.apply_schedules(now=DS + 11 * H), [])
+        self.s.clock_in("YouTube", now=DS + 24 * H + 8.5 * H)
+        self.assertEqual(self.s.apply_schedules(now=DS + 24 * H + 9 * H), ["Gym"])
+        segs = self.s.segments_between(DS + 24 * H, DS + 48 * H, DS + 24 * H + 9 * H)
+        self.assertEqual([(n, b - a) for _, n, _, _, a, b in segs if n == "Gym"], [("Gym", 0.5 * H)])
+        self.assertEqual(self.s.current()[1], "YouTube")
+
+    def test_disabled_schedule_does_not_fire(self):
+        self.s.add_schedule("Gym", "08:00", "1234567", now=DS)
+        sid = self.s.schedules()[0][0]
+        self.s.set_schedule_enabled(sid, False, now=DS)
+        self.assertEqual(self.s.apply_schedules(now=DS + 2 * 24 * H), [])
+        self.s.set_schedule_enabled(sid, True, now=DS + 2 * 24 * H)
+        self.assertEqual(self.s.apply_schedules(now=DS + 2 * 24 * H + 1), [])
+        with self.assertRaises(ValueError):
+            self.s.add_schedule("Gym", "25:00", "1")
+
 
 if __name__ == "__main__":
     unittest.main()

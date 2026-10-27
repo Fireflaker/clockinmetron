@@ -1,0 +1,16 @@
+{
+  "name": "clockinmetron",
+  "short_name": "Clock in",
+  "description": "Clock in to one task at a time. Every day adds up to 24h.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#1e1f24",
+  "theme_color": "#1e1f24",
+  "icons": [
+    {"src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any"},
+    {"src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any"},
+    {"src": "icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable"}
+  ]
+}

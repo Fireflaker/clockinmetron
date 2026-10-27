@@ -40,6 +40,7 @@ class Chart(tk.Frame):
         self.cx = self.cy = 0.0                     # view center (data units)
         self.half = LIM                             # view half-width (data units)
         self.tags, self.hover, self._press = [], None, None
+        self.picking = None                         # (prompt, callback) while choosing a task
         self._bg_key, self._bg_img, self._cmap = None, None, {}
 
         self.cv = tk.Canvas(self, bg=BG, highlightthickness=0, cursor="crosshair")
@@ -94,6 +95,18 @@ class Chart(tk.Frame):
 
     def update_center(self):
         self.draw()
+
+    def pick(self, prompt, callback):
+        """Next dot click calls callback(name) instead of clocking in; cancel calls callback(None)."""
+        self.cancel_pick()
+        self.picking = (prompt, callback)
+        self.draw()
+
+    def cancel_pick(self):
+        if self.picking:
+            cb, self.picking = self.picking[1], None
+            self.draw()
+            cb(None)
 
     # ---------- drawing ----------
     def _backdrop(self, ox, oy, side):
@@ -160,6 +173,14 @@ class Chart(tk.Frame):
             cv.create_oval(px - r, py - r, px + r, py + r, fill=col, outline="#ffffff",
                            dash=(3, 2) if i == drag_i else None)
         self._labels(dots, cur_name, ox, oy, side)
+        if self.picking:
+            k = self.R / 7
+            t = cv.create_text(ox + side / 2, oy + 10 * k, anchor="n", fill="#111216", font=AXIS_FONT,
+                               text=f"{self.picking[0]}\nclick a task · right-click / Esc = cancel",
+                               justify="center")
+            x1, y1, x2, y2 = cv.bbox(t)
+            cv.tag_lower(cv.create_rectangle(x1 - 10, y1 - 5, x2 + 10, y2 + 5, fill="#ffb347",
+                                             outline="#ffffff", width=2), t)
         self._ghost_and_tip()
 
     def _labels(self, dots, cur_name, ox, oy, side):
@@ -204,14 +225,16 @@ class Chart(tk.Frame):
             name, x, y = self.tags[self.hover]
             sec = self.app.store.day_summary(self.app.selected_day)["by_name"].get(name, 0)
             text = (f"{name}\n{describe(x, y)}\nToday: {int(sec // 3600)}h {int(sec % 3600 // 60):02d}m\n"
-                    "click = clock in · drag = move · right-click = edit")
+                    + ("click = choose this task" if self.picking else
+                       "click = clock in · drag = move · right-click = edit"))
         else:
             x, y = self._hover_pt
             px, py = self.to_px(x, y)
             r = self.R
             cv.create_oval(px - r, py - r, px + r, py + r, fill=themes.color(x, y, self.app.theme),
                            outline="#ffffff", dash=(3, 2), tags="tip")
-            text = f"{describe(x, y)}\nclick = add task here · drag = pan"
+            text = describe(x, y) + ("\nclick a task dot" if self.picking else
+                                     "\nclick = add task here · drag = pan")
         px, py = self.to_px(x, y)
         ox, oy, side = self._geom()
         right, below = px < ox + side / 2, py < oy + side / 2
@@ -294,13 +317,19 @@ class Chart(tk.Frame):
                     self.app.data_changed()
                 else:
                     self.draw()
+            elif self.picking:
+                cb, self.picking = self.picking[1], None
+                self.draw()
+                cb(name)
             else:
                 self.app.clock_in(name)
-        else:
+        elif not self.picking:
             x, y = self.to_data(*p["px"])
             self._add_at(_clip(x), _clip(y))
 
     def on_right(self, e):
+        if self.picking:
+            return self.cancel_pick()
         i = self._hit(e.x, e.y)
         if i is not None:
             self._menu(self.tags[i][0], e)

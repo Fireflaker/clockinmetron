@@ -61,17 +61,20 @@ class LiveView(tk.Frame):
         self.canvas.pack(fill="both", expand=True)
         self.sb = tk.Scrollbar(self, orient="horizontal", command=self.on_scrollbar)
         self.sb.pack(fill="x")
-        tk.Label(self, text="Drag or mouse-wheel to scroll through time · Ctrl+wheel to zoom · "
-                            "click a block to reassign it", bg=PANEL, fg=MUTED).pack(anchor="w", padx=8, pady=2)
+        tk.Label(self, text="Drag over a range (or click a block), then click a task on the chart to reassign it · "
+                            "wheel or right-drag = scroll · Ctrl+wheel = zoom", bg=PANEL, fg=MUTED).pack(anchor="w", padx=8, pady=2)
 
         c = self.canvas
         c.bind("<MouseWheel>", self.on_wheel)
         c.bind("<Shift-MouseWheel>", self.on_wheel)
         c.bind("<Control-MouseWheel>", self.on_zoom_wheel)
-        c.bind("<ButtonPress-1>", self.on_press)
-        c.bind("<B1-Motion>", self.on_drag)
-        c.bind("<ButtonRelease-1>", self.on_release)
-        c.bind("<Button-3>", self.show_menu)
+        c.bind("<ButtonPress-1>", self.on_sel_press)
+        c.bind("<B1-Motion>", self.on_sel_drag)
+        c.bind("<ButtonRelease-1>", self.on_sel_release)
+        c.bind("<ButtonPress-3>", self.on_press)
+        c.bind("<B3-Motion>", self.on_drag)
+        c.bind("<ButtonRelease-3>", self.on_release)
+        self._sel = None
 
         self._refresh_controls()
         self.animate()
@@ -180,24 +183,44 @@ class LiveView(tk.Frame):
 
     def on_release(self, ev):
         if self._drag and not self._drag[2]:
-            self.show_menu(ev)
+            self.app.cancel_selection()
         self._drag = None
 
-    def show_menu(self, ev):
-        hit = [self.items[i] for i in self.canvas.find_overlapping(ev.x, ev.y, ev.x, ev.y) if i in self.items]
-        t = self.view_start + ev.x / self._pps()
-        if t >= time.time():
+    def _t_at(self, x):
+        return self.view_start + x / self._pps()
+
+    def _snap(self, t):
+        step = 1 if self.span <= 900 else 60 if self.span <= 6 * 3600 else 300
+        return round(t / step) * step
+
+    def on_sel_press(self, ev):
+        self._sel = (ev.x, False)
+
+    def on_sel_drag(self, ev):
+        if not self._sel:
             return
-        menu = tk.Menu(self, tearoff=0)
+        x0, moved = self._sel
+        if not moved and abs(ev.x - x0) <= 3:
+            return
+        if not moved:
+            self.app.cancel_selection()
+        self._sel = (x0, True)
+        a, b = sorted((self._snap(self._t_at(x0)), self._snap(self._t_at(ev.x))))
+        self.app.selection = (a, b)
+
+    def on_sel_release(self, ev):
+        p, self._sel = self._sel, None
+        if not p:
+            return
+        if p[1]:
+            if self.app.selection:
+                self.app.select_range(*self.app.selection)
+            return
+        hit = [self.items[i] for i in self.canvas.find_overlapping(ev.x, ev.y, ev.x, ev.y) if i in self.items]
         if hit:
-            sub = tk.Menu(menu, tearoff=0)
-            for name, _, _ in self.app.store.tags():
-                sub.add_command(label=name, command=lambda k=hit[-1], n=name: self.app._reassign(k, n))
-            menu.add_cascade(label="Reassign this block to…", menu=sub)
-        start = datetime.fromtimestamp(t).replace(microsecond=0)
-        menu.add_command(label=f"Log block starting {start:%H:%M:%S}…",
-                         command=lambda: self.app.open_log_dialog(start))
-        menu.tk_popup(ev.x_root, ev.y_root)
+            self.app.select_range(*hit[-1])
+        else:
+            self.app.cancel_selection()
 
     def _sun_events(self, vs, ve):
         d, last = datetime.fromtimestamp(vs).date() - timedelta(days=1), datetime.fromtimestamp(ve).date()
@@ -295,7 +318,7 @@ class LiveView(tk.Frame):
             color = self.app.color(sx, sy)
             x0, x1 = max(x_of(a), -2), min(x_of(b), w + 2)
             item = c.create_rectangle(x0, top, x1, bot, fill=color, outline="")
-            self.items[item] = key
+            self.items[item] = (a, b)
             c.create_line(x0, top, x0, bot, fill=BG, width=2)
             if x1 - x0 > 50:
                 tx = min(max(x0, 0) + 10, x1 - 40)
@@ -304,7 +327,19 @@ class LiveView(tk.Frame):
                                    font=("Segoe UI", 18 if bot - top > 120 else 12, "bold"))
                 t2 = c.create_text(tx, (top + bot) / 2 + 2, text=dur(b - a), anchor="nw", fill=fg,
                                    font=("Segoe UI", 11))
-                self.items[t1] = self.items[t2] = key
+                self.items[t1] = self.items[t2] = (a, b)
+
+        sel = self.app.selection
+        if sel and sel[1] > vs and sel[0] < ve:
+            x0, x1 = max(x_of(sel[0]), -2), min(x_of(sel[1]), w + 2)
+            c.create_rectangle(x0, top - 4, x1, bot + 4, fill="#ffffff", stipple="gray25",
+                               outline="#ffffff", width=2, dash=(4, 2))
+            f = "%H:%M:%S" if self.span <= 6 * 3600 else "%H:%M"
+            lbl = c.create_text((max(x0, 0) + min(x1, w)) / 2, top + 6, anchor="n", fill="#111216",
+                                font=("Segoe UI", 9, "bold"),
+                                text=f"{datetime.fromtimestamp(sel[0]):{f}} – {datetime.fromtimestamp(sel[1]):{f}}")
+            c.create_rectangle(c.bbox(lbl), fill="#ffffff", outline="")
+            c.tag_raise(lbl)
 
         # glowing, pulsing leading edge of the active block
         self._draw_sun(c, vs, ve, x_of, top, bot, w)
