@@ -1,5 +1,5 @@
 // Offline support: network first (so updates show up right away), cached copy when offline.
-const CACHE = "clockinmetron-v2";
+const CACHE = "clockinmetron-v3";
 const SHELL = ["./", "index.html", "style.css", "app.js", "manifest.json", "icons/apple-touch-icon.png",
                "icons/icon-192.png", "icons/icon-512.png", "icons/maskable-512.png"];
 

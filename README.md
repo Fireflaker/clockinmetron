@@ -35,7 +35,7 @@ Phones and the PC can share one dataset stored in a secret gist on your GitHub a
 3. The first device creates the gist. Each later device asks whether to **use the synced data** (recommended for a
    new device) or **merge** both.
 
-Syncing runs at startup, about 3 s after each change, and every minute.
+Syncing runs at startup, about 1 s after each change (clock-in, task move, edit), and every minute. Each sync is 2–3 API calls, far below GitHub's 5,000 requests/hour.
 If only one side changed, that version wins. If both changed offline, they are merged: all tasks and timeline rows
 are kept, and the device syncing at that moment wins ties.
 The token is stored only on each device (`data/settings.json` on the PC, app storage on the phone) and is never
@@ -65,7 +65,9 @@ Python 3.10+ with tkinter is required.
 On the phone: tap a dot to clock in, drag to move it, hold to edit, tap empty space to add a task, pinch to zoom.
 In the Day view, hold then drag to select a range.
 
-- **Week calendar** and a **Live** tab where the current block fills in second by second.
+- **Week calendar** and a **Live** tab where the current block fills in second by second. The Live strip is split:
+  **top half** = drag (or click a block) to reassign; **bottom half** = drag to scroll, wheel / pinch to zoom.
+  **● LIVE** jumps back to now.
 - **Auto clock-in**: for example *Engineering at 09:00 Mon–Fri*. There is no clock-out. If the app was closed at that
   time, the entry is back-filled at the exact time when it next opens.
 - Sunrise and sunset markers, plus a **% of day / night** bar. The desktop location is guessed from your timezone; you

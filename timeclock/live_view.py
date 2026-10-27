@@ -61,20 +61,23 @@ class LiveView(tk.Frame):
         self.canvas.pack(fill="both", expand=True)
         self.sb = tk.Scrollbar(self, orient="horizontal", command=self.on_scrollbar)
         self.sb.pack(fill="x")
-        tk.Label(self, text="Drag over a range (or click a block), then click a task on the chart to reassign it · "
-                            "wheel or right-drag = scroll · Ctrl+wheel = zoom", bg=PANEL, fg=MUTED).pack(anchor="w", padx=8, pady=2)
+        tk.Label(self, text="Top half: drag over a range (or click a block), then click a task on the chart to reassign · "
+                            "Bottom half: drag = scroll, wheel = zoom", bg=PANEL, fg=MUTED).pack(anchor="w", padx=8, pady=2)
 
         c = self.canvas
         c.bind("<MouseWheel>", self.on_wheel)
         c.bind("<Shift-MouseWheel>", self.on_wheel)
         c.bind("<Control-MouseWheel>", self.on_zoom_wheel)
-        c.bind("<ButtonPress-1>", self.on_sel_press)
-        c.bind("<B1-Motion>", self.on_sel_drag)
-        c.bind("<ButtonRelease-1>", self.on_sel_release)
+        c.bind("<ButtonPress-1>", self.on_left_press)
+        c.bind("<B1-Motion>", self.on_left_drag)
+        c.bind("<ButtonRelease-1>", self.on_left_release)
+        c.bind("<Motion>", lambda ev: c.configure(cursor="sb_h_double_arrow" if self._in_nav(ev.y) else "crosshair"))
         c.bind("<ButtonPress-3>", self.on_press)
         c.bind("<B3-Motion>", self.on_drag)
         c.bind("<ButtonRelease-3>", self.on_release)
         self._sel = None
+        self._mid = None
+        self._left_nav = False
 
         self._refresh_controls()
         self.animate()
@@ -140,7 +143,28 @@ class LiveView(tk.Frame):
             self.follow_btn.configure(text="Jump to now ▶", bg=BG, fg=FG)
 
     # ---------- input ----------
+    def _in_nav(self, y):
+        """Bottom half of the strip (and the time axis below it) scrolls/zooms; the top half selects."""
+        return self._mid is not None and y >= self._mid
+
+    def on_left_press(self, ev):
+        self._left_nav = self._in_nav(ev.y)
+        (self.on_press if self._left_nav else self.on_sel_press)(ev)
+
+    def on_left_drag(self, ev):
+        (self.on_drag if self._left_nav else self.on_sel_drag)(ev)
+
+    def on_left_release(self, ev):
+        if not self._left_nav:
+            return self.on_sel_release(ev)
+        tapped = self._drag and not self._drag[2]
+        self._drag = None
+        if tapped:            # a click in the bottom half still selects the block under it
+            self.on_sel_release_at(ev)
+
     def on_wheel(self, ev):
+        if self._in_nav(ev.y) and not ev.state & 0x1:
+            return self.on_zoom_wheel(ev)
         self._unfollow()
         self.view_start -= (ev.delta / 120) * 0.1 * self.span
         self._clamp()
@@ -216,6 +240,9 @@ class LiveView(tk.Frame):
             if self.app.selection:
                 self.app.select_range(*self.app.selection)
             return
+        self.on_sel_release_at(ev)
+
+    def on_sel_release_at(self, ev):
         hit = [self.items[i] for i in self.canvas.find_overlapping(ev.x, ev.y, ev.x, ev.y) if i in self.items]
         if hit:
             self.app.select_range(*hit[-1])
@@ -328,6 +355,13 @@ class LiveView(tk.Frame):
                 t2 = c.create_text(tx, (top + bot) / 2 + 2, text=dur(b - a), anchor="nw", fill=fg,
                                    font=("Segoe UI", 11))
                 self.items[t1] = self.items[t2] = (a, b)
+
+        # top half = reassign (select), bottom half = scroll / zoom
+        mid = self._mid = (top + bot) / 2
+        c.create_rectangle(0, mid, w, bot, fill="#000000", stipple="gray12", outline="")
+        c.create_line(0, mid, w, mid, fill="#9aa0ad", dash=(2, 4))
+        for y, txt, anc in ((top + 4, "drag = reassign ✎", "ne"), (bot - 4, "⇆ drag = scroll · wheel = zoom", "se")):
+            c.create_text(w - 8, y, text=txt, anchor=anc, fill="#e8e8ea", font=("Segoe UI", 9, "italic"))
 
         sel = self.app.selection
         if sel and sel[1] > vs and sel[0] < ve:

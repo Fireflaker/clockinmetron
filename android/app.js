@@ -29,7 +29,7 @@ function load() {
   };
 }
 const persist = () => localStorage.setItem(KEY, JSON.stringify(S));
-const save = () => { persist(); syncSoon(3000); };
+const save = () => { persist(); syncSoon(1000); };
 const tag = name => S.tags.find(t => t.name === name);
 const current = () => S.log[S.log.length - 1];
 const firstStart = () => (S.log.find(r => r[1] != null) || [nowS()])[0];
@@ -466,10 +466,11 @@ function selectRange(s, e) {
 /** Shared touch logic for the day and live canvases.
  *  mouse: drag = select range.  touch: tap a block = select it; hold then drag = select range;
  *  a quick swipe still scrolls the page (touch-action: pan-y). */
-function rangeSelect(cv, timeAt, snap, horizontal) {
+function rangeSelect(cv, timeAt, snap, horizontal, skip = () => false) {
   let st = null;
   cv.addEventListener("pointerdown", e => {
     const r = cv.getBoundingClientRect(), x = e.clientX - r.left, y = e.clientY - r.top;
+    if (st || skip(y)) { if (st) { clearTimeout(st.hold); st = null; } return; }
     st = {x, y, id: e.pointerId, active: e.pointerType === "mouse" || horizontal, moved: false, t0: timeAt(x, y)};
     if (!st.active) st.hold = setTimeout(() => { if (st && !st.moved) { st.active = true; navigator.vibrate?.(20); } }, 350);
   });
@@ -588,11 +589,32 @@ const escapeHtml = s => s.replace(/[&<>"]/g, c => ({"&": "&amp;", "<": "&lt;", "
 // ---------------------------------------------------------------- live view
 const liveCv = $("liveCanvas");
 liveCv._blocks = [];
-let liveSpan = 300;
+let liveSpan = 300, liveFollow = true, liveVs = 0;
 const LIVE_ZOOMS = [["1 min", 60], ["5 min", 300], ["15 min", 900], ["1 hr", 3600], ["6 hr", 21600]];
-$("liveZooms").innerHTML = LIVE_ZOOMS.map(([l, s]) => `<button data-span="${s}">${l}</button>`).join("");
-$("liveZooms").onclick = e => { if (e.target.dataset.span) { liveSpan = +e.target.dataset.span; selection = null; cancelPick(); } };
-const liveStart = now => now - 0.85 * liveSpan;
+const LIVE_MIN = 20, LIVE_MAX = 2 * 86400;
+$("liveZooms").innerHTML = LIVE_ZOOMS.map(([l, s]) => `<button data-span="${s}">${l}</button>`).join("") +
+  `<button id="liveNow" data-live="1"></button>`;
+$("liveZooms").onclick = e => {
+  const b = e.target.closest("button");
+  if (!b) return;
+  if (b.dataset.live) liveFollow = true;
+  else setLiveSpan(+b.dataset.span);
+  selection = null; cancelPick(); drawLive();
+};
+const liveStart = now => liveFollow ? now - 0.85 * liveSpan : liveVs;
+function clampLive(now = nowS()) {
+  if (liveFollow) return;
+  const hi = now - 0.85 * liveSpan, lo = Math.min(firstStart(), now - liveSpan) - 0.05 * liveSpan;
+  if (liveVs >= hi) liveFollow = true;
+  liveVs = Math.max(Math.min(liveVs, hi), lo);
+}
+/** Zoom to `span` keeping time under x (px) fixed; when following, stay pinned to now. */
+function setLiveSpan(span, x = liveCv.clientWidth / 2) {
+  span = Math.min(Math.max(span, LIVE_MIN), LIVE_MAX);
+  if (!liveFollow) { const t = liveVs + x / liveCv.clientWidth * liveSpan; liveVs = t - x / liveCv.clientWidth * span; }
+  liveSpan = span; clampLive();
+}
+function panLive(vs) { liveFollow = false; liveVs = vs; clampLive(); drawLive(); }
 
 function drawLive() {
   const [ctx, w, h] = fit(liveCv), now = nowS(), vs = liveStart(now), ve = vs + liveSpan, pps = w / liveSpan;
@@ -630,6 +652,13 @@ function drawLive() {
       label(ctx, `${i ? "☾ Sunset" : "☀ Sunrise"} ${hm(t)}`, xOf(t) + 5, top + 6, "#ffb347", "#1e1f24");
     });
   }
+  const mid = liveCv._mid = (top + bot) / 2;
+  ctx.fillStyle = "#0000002a"; ctx.fillRect(0, mid, w, bot - mid);
+  ctx.strokeStyle = "#9aa0ad"; ctx.setLineDash([2, 4]); ctx.beginPath(); ctx.moveTo(0, mid); ctx.lineTo(w, mid); ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.font = "italic 11px system-ui";
+  label(ctx, "drag = reassign ✎", w - 6, top + 4, "#e8e8ea", "#1e1f24aa", "right", "top");
+  label(ctx, "⇆ drag = scroll · pinch = zoom", w - 6, bot - 4, "#e8e8ea", "#1e1f24aa", "right", "bottom");
   if (selection && selection[1] > vs && selection[0] < ve) {
     const x0 = Math.max(xOf(selection[0]), 0), x1 = Math.min(xOf(selection[1]), w);
     ctx.fillStyle = "#ffffff44"; ctx.fillRect(x0, top - 4, x1 - x0, bot - top + 8);
@@ -646,9 +675,70 @@ function drawLive() {
   ctx.font = "bold 13px system-ui"; ctx.textAlign = "center"; ctx.textBaseline = "bottom"; ctx.fillStyle = "#ff6b6b";
   ctx.fillText(hms(now), Math.min(xn, w - 34), top - 12);
   for (const b of $("liveZooms").children) b.classList.toggle("on", +b.dataset.span === liveSpan);
+  $("liveNow").textContent = liveFollow ? "● LIVE" : "Now ▶";
+  $("liveNow").classList.toggle("live", liveFollow);
 }
 rangeSelect(liveCv, x => liveStart(nowS()) + x / (liveCv.clientWidth / liveSpan),
-  t => Math.round(t / (liveSpan <= 900 ? 1 : 60)) * (liveSpan <= 900 ? 1 : 60), true);
+  t => Math.round(t / (liveSpan <= 900 ? 1 : 60)) * (liveSpan <= 900 ? 1 : 60), true,
+  y => liveCv._pts.size > 0 || (liveCv._mid != null && y >= liveCv._mid));
+
+// bottom half of the live strip: 1 finger / mouse drag = scroll, pinch or wheel = zoom, tap = select block
+{
+  const pts = liveCv._pts = new Map();
+  let nav = null;
+  const pos = e => { const r = liveCv.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
+  liveCv.addEventListener("pointerdown", e => {
+    const [x, y] = pos(e);
+    if (!pts.size && !(liveCv._mid != null && y >= liveCv._mid)) return;
+    pts.set(e.pointerId, x);
+    try { liveCv.setPointerCapture(e.pointerId); } catch {}
+    const now = nowS(), xs = [...pts.values()];
+    nav = {vs: liveStart(now), span: liveSpan, x0: xs[0], moved: pts.size > 1,
+           d0: xs.length > 1 ? Math.abs(xs[1] - xs[0]) : 0, c0: (xs[0] + (xs[1] ?? xs[0])) / 2};
+  });
+  liveCv.addEventListener("touchmove", e => { if (nav) e.preventDefault(); }, {passive: false});
+  liveCv.addEventListener("pointermove", e => {
+    if (!nav || !pts.has(e.pointerId)) return;
+    pts.set(e.pointerId, pos(e)[0]);
+    const xs = [...pts.values()], w = liveCv.clientWidth;
+    if (xs.length > 1) {                                     // pinch: keep the time under the fingers' center
+      const d = Math.max(Math.abs(xs[1] - xs[0]), 10), c = (xs[0] + xs[1]) / 2;
+      const span = Math.min(Math.max(nav.span * nav.d0 / d, LIVE_MIN), LIVE_MAX);
+      const tc = nav.vs + nav.c0 / w * nav.span;
+      liveSpan = span; nav.moved = true;
+      return panLive(tc - c / w * span);
+    }
+    if (!nav.moved && Math.abs(xs[0] - nav.x0) < 6) return;
+    nav.moved = true;
+    panLive(nav.vs - (xs[0] - nav.x0) / w * nav.span);
+  });
+  const end = e => {
+    if (!pts.delete(e.pointerId) || !nav) return;
+    if (pts.size) {                                          // one finger lifted from a pinch: restart as a drag
+      const now = nowS(), x = [...pts.values()][0];
+      nav = {vs: liveStart(now), span: liveSpan, x0: x, moved: true, d0: 0, c0: x};
+      return;
+    }
+    const tapped = !nav.moved && e.type === "pointerup";
+    nav = null;
+    if (!tapped) return;
+    const [x, y] = pos(e), b = liveCv._blocks.find(k => x >= k[0] && x <= k[2] && y >= k[1] && y <= k[3]);
+    if (b) selectRange(b[4], b[5]); else { cancelPick(); selection = null; drawLive(); }
+  };
+  liveCv.addEventListener("pointerup", end);
+  liveCv.addEventListener("pointercancel", end);
+  liveCv.addEventListener("wheel", e => {
+    e.preventDefault();
+    const [x, y] = pos(e);
+    if (y >= liveCv._mid) {
+      const vs = liveStart(nowS()), t = vs + x / liveCv.clientWidth * liveSpan;
+      liveSpan = Math.min(Math.max(liveSpan * (e.deltaY > 0 ? 1.25 : 0.8), LIVE_MIN), LIVE_MAX);
+      if (!liveFollow) return panLive(t - x / liveCv.clientWidth * liveSpan);
+      return drawLive();
+    }
+    panLive(liveStart(nowS()) + (e.deltaY || e.deltaX) / 1000 * liveSpan);
+  }, {passive: false});
+}
 
 // ---------------------------------------------------------------- schedules
 const PRESETS = {"12345": "Weekdays", "67": "Weekend", "1234567": "Every day"};

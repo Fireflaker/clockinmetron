@@ -186,7 +186,7 @@ class App(tk.Tk):
         self.sched.refresh()
         self.redraw()
         if kick:
-            self.sync_kick(3)
+            self.sync_kick(1)
 
     # ---------- sync through a private GitHub Gist (see sync.py) ----------
     def sync_kick(self, delay=0):

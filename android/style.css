@@ -53,6 +53,8 @@ table#sumTable { width: 100%; border-collapse: collapse; margin-top: 8px; font-v
 .chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
 .chips button { padding: 6px 11px; border-radius: 18px; font-size: 14px; }
 .chips button.on { background: #5a5e6b; border-color: #8a8c96; }
+#liveNow { margin-left: auto; }
+#liveNow.live { color: #ff6b6b; border-color: #ff6b6b66; }
 .form { background: var(--panel); border-radius: 12px; padding: 10px; }
 .form select, .form input, .form button { background: var(--bg); }
 .form button.primary { background: var(--accent); width: 100%; margin-top: 6px; }
