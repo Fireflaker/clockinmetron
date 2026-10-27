@@ -1,5 +1,7 @@
 # clockinmetron
 
+"- I don't have time. - Shut up. - We all have 24hr a day"
+
 Clock in to one task at a time, so every day adds up to exactly 24h.
 Tasks sit on an **Indoor ↔ Outdoor × Alone ↔ Social** map, and their colors come from where they sit.
 That makes the calendar readable at a glance: more orange and green means more outdoor and social time.
