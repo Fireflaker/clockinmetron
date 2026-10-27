@@ -780,7 +780,8 @@ async function gh(token, method, path, body) {
     method, cache: "no-store", body: body && JSON.stringify(body),
     headers: {Authorization: "Bearer " + token, Accept: "application/vnd.github+json"},
   }).catch(() => { throw new Error("offline"); });
-  if (!r.ok) throw new Error({401: "token rejected", 403: "token lacks Gist access", 404: "gist not found"}[r.status]
+  if (!r.ok) throw new Error({401: "token rejected", 404: "gist not found",
+    403: "token lacks Gist permission (edit token → Account tab → Gists: Read and write)"}[r.status]
                              || "GitHub error " + r.status);
   return r.json();
 }

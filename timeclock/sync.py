@@ -83,7 +83,8 @@ class Gist:
             with urllib.request.urlopen(req, timeout=20) as r:
                 data = r.read()
         except urllib.error.HTTPError as e:
-            msg = {401: "token rejected", 403: "token lacks Gist access", 404: "gist not found"}.get(e.code)
+            msg = {401: "token rejected", 404: "gist not found",
+                   403: "token lacks Gist permission (edit token → Account tab → Gists: Read and write)"}.get(e.code)
             raise GistError(msg or f"GitHub error {e.code}") from None
         except OSError as e:
             raise GistError(f"offline ({e})") from None

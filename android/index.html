@@ -85,9 +85,10 @@
       <label>lon <input id="lon" type="number" step="0.01"></label><button id="latlonSave">Save</button></div>
     <h3>Sync (phones + PC, free via GitHub)</h3>
     <div id="syncOff">
-      <p class="hint">Keeps your data in one private GitHub Gist. Make a token once: github.com → Settings → Developer settings →
-        <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener">Fine-grained tokens</a> →
-        Account permissions → <b>Gists: Read and write</b> (nothing else). Paste the same token on every device.</p>
+      <p class="hint">Keeps your data in one private GitHub Gist. Make a token once:
+        <a href="https://github.com/settings/personal-access-tokens/new?name=clockinmetron+sync&amp;description=Sync+clockinmetron+through+one+private+gist&amp;expires_in=none&amp;gists=write" target="_blank" rel="noopener">pre-filled token page</a>
+        → <b>Generate token</b>. It only needs <b>Gists: Read and write</b> (permissions picker → <b>Account</b> tab).
+        Paste the same token on every device.</p>
       <div class="row"><input id="syncToken" type="password" placeholder="github_pat_…" autocomplete="off" style="flex:1">
         <button id="syncConnect" class="primary">Connect</button></div>
     </div>

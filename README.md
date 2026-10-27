@@ -24,9 +24,11 @@ Use **More → Export JSON** to back it up.
 
 Phones and the PC can share one dataset stored in a secret gist on your GitHub account.
 
-1. On github.com go to Settings → Developer settings →
-   [Fine-grained tokens](https://github.com/settings/personal-access-tokens/new) → Generate.
-   Under Account permissions, set **Gists: Read and write** and nothing else.
+1. Open **[this pre-filled token page](https://github.com/settings/personal-access-tokens/new?name=clockinmetron+sync&description=Sync+clockinmetron+through+one+private+gist&expires_in=none&gists=write)**
+   and click **Generate token**. It already has the only permission needed: **Gists: Read and write**.
+   To do it by hand, go to Settings → Developer settings → Fine-grained tokens. In the permissions picker, open the
+   **Account** tab (not Repository) and add **Gists** with Read and write.
+   An existing token can be edited the same way and keeps its value.
 2. Paste the token on each device:
    - Phone: **More → Sync**.
    - PC: the **☁ Sync…** button.

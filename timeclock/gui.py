@@ -238,8 +238,8 @@ class App(tk.Tk):
         token = simpledialog.askstring(
             "Sync with GitHub",
             "Free sync between this PC and your phones through a private GitHub Gist.\n\n"
-            "1. github.com → Settings → Developer settings → Fine-grained tokens → Generate\n"
-            "2. Account permissions → Gists: Read and write (nothing else)\n"
+            "1. Open github.com/settings/personal-access-tokens/new\n"
+            "2. Permissions → Account tab (not Repository) → add Gists: Read and write (nothing else)\n"
             "3. Paste the token here (it stays in data/settings.json on this PC):", parent=self, show="•")
         if not token:
             return
